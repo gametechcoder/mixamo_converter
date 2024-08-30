@@ -231,46 +231,58 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
 
     yield Status("starting hip_to_root")
 
-    root = armature
-    root.name = "root"
-    root.rotation_mode = 'QUATERNION'
-    framerange = root.animation_data.action.frame_range
-
     for hipname in ('Hips', 'mixamorig:Hips', 'mixamorig_Hips', 'Pelvis', hipname):
-        hips = root.pose.bones.get(hipname)
+        hips = armature.pose.bones.get(hipname)
         if hips != None:
             break
     if hips == None:
-        log.warning('WARNING I have not found any hip bone for %s and the conversion is stopping here',  root.pose.bones)
+        log.warning('WARNING I have not found any hip bone for %s and the conversion is stopping here',  armature.pose.bones)
         raise ValueError("no hips found")
     else:
-        yield Status("hips found")
+        yield Status("hips found")    
 
-    key_all_bones(root, (1, 2))
 
-    # Scale by ScaleFactor
-    if scale != 1.0:
-        for i in range(3):
-            fcurve = root.animation_data.action.fcurves.find('scale', index=i)
-            if fcurve != None:
-                root.animation_data.action.fcurves.remove(fcurve)
-        root.scale *= scale
-        yield Status("scaling")
+    framerange = armature.animation_data.action.frame_range
+
+    hiplocation_world = armature.matrix_local @ hips.bone.head
+    z_offset = hiplocation_world[2]
+
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    root_bone_name = "root"
+    name_prefix = "mixamorig:"
+    root = armature.data.edit_bones.new(name_prefix + root_bone_name)
+    root.tail.z = 1
+
+    armature.data.edit_bones[hipname].parent = armature.data.edit_bones[name_prefix + root_bone_name]
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    root = armature.pose.bones.get(name_prefix + root_bone_name)
+
+    key_all_bones(armature, (1, 2))
+
+    # # Scale by ScaleFactor
+    # if scale != 1.0:
+    #     for i in range(3):
+    #         fcurve = armature.animation_data.action.fcurves.find('scale', index=i)
+    #         if fcurve != None:
+    #             armature.animation_data.action.fcurves.remove(fcurve)
+    #     root.scale *= scale
+    #     yield Status("scaling")
 
     # fix quaternion sign swapping
     if quaternion_clean_pre:
-        quaternion_cleanup(root)
+        quaternion_cleanup(armature)
         yield Status("quaternion clean pre")
 
     if foot_bone_workaround:
         apply_foot_bone_workaround(armature)
 
     # apply restoffset to restpose and correct animation
-    apply_restoffset(root, hips, restoffset)
+    apply_restoffset(armature, hips, restoffset)
     yield Status("restoffset")
 
-    hiplocation_world = root.matrix_local @ hips.bone.head
-    z_offset = hiplocation_world[2]
+
 
     # Create helper to bake the root motion
     rootbaker = bpy.data.objects.new(name="rootbaker", object_data=None)
@@ -280,7 +292,7 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
         print("using z")
         c_rootbaker_copy_z_loc = rootbaker.constraints.new(type='COPY_LOCATION')
         c_rootbaker_copy_z_loc.name = "Copy Z_Loc"
-        c_rootbaker_copy_z_loc.target = root
+        c_rootbaker_copy_z_loc.target = armature
         c_rootbaker_copy_z_loc.subtarget = hips.name
         c_rootbaker_copy_z_loc.use_x = False
         c_rootbaker_copy_z_loc.use_y = False
@@ -298,11 +310,11 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
     c_rootbaker_copy_loc.use_x = use_x
     c_rootbaker_copy_loc.use_y = use_y
     c_rootbaker_copy_loc.use_z = False
-    c_rootbaker_copy_loc.target = root
+    c_rootbaker_copy_loc.target = armature
     c_rootbaker_copy_loc.subtarget = hips.name
 
     c_rootbaker_copy_rot = rootbaker.constraints.new(type='COPY_ROTATION')
-    c_rootbaker_copy_rot.target = root
+    c_rootbaker_copy_rot.target = armature
     c_rootbaker_copy_rot.subtarget = hips.name
     c_rootbaker_copy_rot.use_y = False
     c_rootbaker_copy_rot.use_x = False
@@ -325,11 +337,11 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
     hipsbaker.rotation_mode = 'QUATERNION'
 
     c_hipsbaker_copy_loc = hipsbaker.constraints.new(type='COPY_LOCATION')
-    c_hipsbaker_copy_loc.target = root
+    c_hipsbaker_copy_loc.target = armature
     c_hipsbaker_copy_loc.subtarget = hips.name
 
     c_hipsbaker_copy_rot = hipsbaker.constraints.new(type='COPY_ROTATION')
-    c_hipsbaker_copy_rot.target = root
+    c_hipsbaker_copy_rot.target = armature
     c_hipsbaker_copy_rot.subtarget = hips.name
     bpy.context.scene.collection.objects.link(hipsbaker)
     yield Status("hipsbaker created")
@@ -346,12 +358,18 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
 
     # select armature
     bpy.ops.object.select_all(action='DESELECT')
-    root.select_set(True)
-    bpy.context.view_layer.objects.active = root
+    armature.select_set(True)
+    bpy.context.view_layer.objects.active = armature
+
+    armature.data.bones.active = root.bone
 
     if apply_rotation or apply_scale:
         bpy.ops.object.transform_apply(location=False, rotation=apply_rotation, scale=apply_scale)
         yield Status("apply transform")
+
+    bpy.ops.object.mode_set(mode='POSE')
+    root.bone.select = True
+
 
     # Bake Root motion to Armature (root)
     c_root_copy_loc = root.constraints.new(type='COPY_LOCATION')
@@ -363,16 +381,17 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
     yield Status("root constrained to rootbaker")
 
     bpy.ops.nla.bake(frame_start=int(framerange[0]), frame_end=int(framerange[1]), step=1, only_selected=True, visual_keying=True,
-                     clear_constraints=True, clear_parents=False, use_current_action=True, bake_types={'OBJECT'})
+                     clear_constraints=True, clear_parents=False, use_current_action=True, bake_types={'POSE'})
+    bpy.ops.object.mode_set(mode='OBJECT')
 
     yield Status("rootbaker baked back")
-    quaternion_cleanup(root)
+    quaternion_cleanup(armature)
     yield Status("root quaternion cleanup")
     hipsbaker.select_set(False)
 
     bpy.ops.object.mode_set(mode='POSE')
     hips.bone.select = True
-    root.data.bones.active = hips.bone
+    armature.data.bones.active = hips.bone
 
     c_hips_copy_loc = hips.constraints.new(type='COPY_LOCATION')
     c_hips_copy_loc.target = hipsbaker
@@ -386,10 +405,10 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
     yield Status("hipsbaker baked back")
 
     if quaternion_clean_post:
-        quaternion_cleanup(root)
+        quaternion_cleanup(armature)
         yield Status("root quaternion cleanup")
 
-    # Delete helpers
+    # # Delete helpers
     bpy.data.actions.remove(hipsbaker.animation_data.action)
     bpy.data.actions.remove(rootbaker.animation_data.action)
     bpy.data.objects.remove(hipsbaker)
@@ -397,13 +416,13 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
 
     yield Status("bakers deleted")
 
-    # bind armature to dummy mesh if it doesn't have any
+    # # bind armature to dummy mesh if it doesn't have any
     if fixbind:
         bindmesh = None
-        for child in root.children:
+        for child in armature.children:
             for mod in child.modifiers:
                 if mod.type == 'ARMATURE':
-                    if mod.object == root:
+                    if mod.object == armature:
                         bindmesh = child
                         break
         if bindmesh is None:
@@ -411,8 +430,8 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
             bpy.ops.mesh.primitive_plane_add(size=1, align='WORLD', enter_editmode=False, location=(0, 0, 0))
             binddummy = bpy.context.object
             binddummy.name = 'binddummy'
-            root.select_set(True)
-            bpy.context.view_layer.objects.active = root
+            armature.select_set(True)
+            bpy.context.view_layer.objects.active = armature
             bpy.ops.object.parent_set(type='ARMATURE')
             yield Status("binddummy created")
         elif apply_rotation or apply_scale:
@@ -540,6 +559,89 @@ def batch_hip_to_root(source_dir, dest_dir, use_x=True, use_y=True, use_z=True, 
         bpy.ops.object.delete(use_global=False)
     return numfiles
 
+# in future remove_prefix should be renamed to rename prefix and a target prefix should be specifiable via ui
+def fixBones(remove_prefix=False, name_prefix="mixamorig:"):
+    bpy.ops.object.mode_set(mode = 'OBJECT')
+        
+    if not bpy.ops.object:
+        log.warning('[Mixamo Root] Could not find amature object, please select the armature')
+
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.context.object.show_in_front = True
+
+    if remove_prefix:
+        for rig in bpy.context.selected_objects:
+            if rig.type == 'ARMATURE':
+                for mesh in rig.children:
+                    for vg in mesh.vertex_groups:
+                        new_name = vg.name
+                        new_name = new_name.replace(name_prefix,"")
+                        rig.pose.bones[vg.name].name = new_name
+                        vg.name = new_name
+                for bone in rig.pose.bones:
+                    bone.name = bone.name.replace(name_prefix,"")
+        for action in bpy.data.actions:
+            fc = action.fcurves
+            for f in fc:
+                f.data_path = f.data_path.replace(name_prefix,"")
+
+def scaleAll():
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    prev_context=bpy.context.area.type
+        
+    bpy.ops.object.mode_set(mode='POSE')
+    bpy.ops.pose.select_all(action='SELECT')
+    bpy.context.area.type = 'GRAPH_EDITOR'
+    bpy.context.space_data.dopesheet.filter_text = "Location"
+    bpy.context.space_data.pivot_point = 'CURSOR'
+    bpy.context.space_data.dopesheet.use_filter_invert = False
+        
+    bpy.ops.anim.channels_select_all(action='SELECT')   
+        
+    bpy.ops.transform.resize(value=(1, 0.01, 1), orient_type='GLOBAL',
+    orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+    orient_matrix_type='GLOBAL',
+    constraint_axis=(False, True, False),
+    mirror=True, use_proportional_edit=False,
+    proportional_edit_falloff='SMOOTH',
+    proportional_size=1,
+    use_proportional_connected=False,
+    use_proportional_projected=False)
+
+
+def copyHips(root_bone_name="Root", hip_bone_name="mixamorig:Hips", name_prefix="mixamorig:"):
+    bpy.context.area.ui_type = 'FCURVES'
+    #SELECT OUR ROOT MOTION BONE 
+    bpy.ops.pose.select_all(action='DESELECT')
+    bpy.context.object.pose.bones[name_prefix + root_bone_name].bone.select = True
+    # SET FRAME TO ZERO
+    bpy.ops.graph.cursor_set(frame=0.0, value=0.0)
+    #ADD NEW KEYFRAME
+    bpy.ops.anim.keyframe_insert_menu(type='Location')
+    #SELECT ONLY HIPS AND LOCTAIUON GRAPH DATA
+    bpy.ops.pose.select_all(action='DESELECT')
+    bpy.context.object.pose.bones[hip_bone_name].bone.select = True        
+    bpy.context.area.ui_type = 'DOPESHEET'
+    bpy.context.space_data.dopesheet.filter_text = "Location"
+    bpy.context.area.ui_type = 'FCURVES'
+    #COPY THE LOCATION VALUES OF THE HIPS AND DELETE THEM         
+    bpy.ops.graph.copy()
+    bpy.ops.graph.select_all(action='DESELECT')
+    
+    myFcurves = bpy.context.object.animation_data.action.fcurves
+        
+    for i in myFcurves:
+        hip_bone_fcvurve = 'pose.bones["'+hip_bone_name+'"].location'
+        if str(i.data_path)==hip_bone_fcvurve:
+            myFcurves.remove(i)
+                
+    bpy.ops.pose.select_all(action='DESELECT')
+    bpy.context.object.pose.bones[name_prefix + root_bone_name].bone.select = True
+    bpy.ops.graph.paste()        
+        
+    bpy.context.area.ui_type = 'VIEW_3D'
+    bpy.ops.object.mode_set(mode='OBJECT')
 
 if __name__ == "__main__":
     print("mixamoconv Hello.")
