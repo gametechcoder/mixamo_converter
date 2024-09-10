@@ -137,6 +137,14 @@ class MixamoPropertyGroup(bpy.types.PropertyGroup):
         maxlen = 256,
         default = "",
         subtype='NONE')
+    
+    rootname: bpy.props.StringProperty(
+        name="Root Name",
+        description="Rootname if the root bone already exists",
+        maxlen = 256,
+        default = "",
+        subtype='NONE')
+
     b_remove_namespace: bpy.props.BoolProperty(
         name="Remove Namespace",
         description="Removes Naespaces from objects and bones",
@@ -232,6 +240,7 @@ class OBJECT_OT_ConvertSingle(bpy.types.Operator):
             scale = mixamo.scale,
             restoffset = mixamo.restoffset,
             hipname = mixamo.hipname,
+            rootname = mixamo.rootname,
             fixbind = mixamo.fixbind,
             apply_rotation = mixamo.apply_rotation,
             apply_scale = mixamo.apply_scale,
@@ -280,6 +289,7 @@ class OBJECT_OT_ConvertSingleStepwise(bpy.types.Operator):
                 scale = mixamo.scale,
                 restoffset = mixamo.restoffset,
                 hipname = mixamo.hipname,
+                rootname = mixamo.rootname,
                 fixbind = mixamo.fixbind,
                 apply_rotation = mixamo.apply_rotation,
                 apply_scale = mixamo.apply_scale,
@@ -360,6 +370,7 @@ class OBJECT_OT_ConvertBatch(bpy.types.Operator):
             scale = mixamo.scale,
             restoffset = mixamo.restoffset,
             hipname = mixamo.hipname,
+            rootname = mixamo.rootname,
             fixbind = mixamo.fixbind,
             apply_rotation = mixamo.apply_rotation,
             apply_scale = mixamo.apply_scale,
@@ -419,6 +430,7 @@ class MIXAMOCONV_VIEW_3D_PT_mixamoconv(bpy.types.Panel):
 
             box.label(text="Bone names:")
             box.prop(scene.mixamo, "hipname")
+            box.prop(scene.mixamo, "rootname")
 
             row = box.row()
             row.prop(scene.mixamo, 'b_remove_namespace', text="Remove Namespaces")

@@ -226,7 +226,7 @@ class Status:
         return str(self.msg)
 
 def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, use_rotation=True, scale=1.0, restoffset=(0, 0, 0),
-                hipname='', fixbind=True, apply_rotation=True, apply_scale=False, quaternion_clean_pre=True, quaternion_clean_post=True, foot_bone_workaround=False):
+                hipname='', rootname='', fixbind=True, apply_rotation=True, apply_scale=False, quaternion_clean_pre=True, quaternion_clean_post=True, foot_bone_workaround=False):
     """function to bake hipmotion to RootMotion in MixamoRigs"""
 
     yield Status("starting hip_to_root")
@@ -244,20 +244,24 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
 
     framerange = armature.animation_data.action.frame_range
 
-    hiplocation_world = armature.matrix_local @ hips.bone.head
-    z_offset = hiplocation_world[2]
+    #hiplocation_world = armature.matrix_local @ hips.bone.head
+    #z_offset = hiplocation_world[2]
+    hiplocation_world = armature.matrix_world @ hips.matrix
+    z_offset = hiplocation_world.translation[2]
 
-    bpy.ops.object.mode_set(mode='EDIT')
+    if rootname is None or rootname == '':
+        root_bone_name = "root"
+        name_prefix = "mixamorig:"
+        rootname = name_prefix+root_bone_name
 
-    root_bone_name = "root"
-    name_prefix = "mixamorig:"
-    root = armature.data.edit_bones.new(name_prefix + root_bone_name)
-    root.tail.z = 1
+        bpy.ops.object.mode_set(mode='EDIT')
+        root = armature.data.edit_bones.new(name_prefix + root_bone_name)
+        root.tail.z = 1
+        armature.data.edit_bones[hipname].parent = armature.data.edit_bones[name_prefix + root_bone_name]
 
-    armature.data.edit_bones[hipname].parent = armature.data.edit_bones[name_prefix + root_bone_name]
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    root = armature.pose.bones.get(name_prefix + root_bone_name)
+    root = armature.pose.bones.get(rootname)
 
     key_all_bones(armature, (1, 2))
 
@@ -367,6 +371,9 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
         bpy.ops.object.transform_apply(location=False, rotation=apply_rotation, scale=apply_scale)
         yield Status("apply transform")
 
+    # remove any keyframes that may be present on an pre-existing root bone
+    remove_bone_keyframes(armature, rootname)
+
     bpy.ops.object.mode_set(mode='POSE')
     root.bone.select = True
 
@@ -408,7 +415,7 @@ def hip_to_root(armature, use_x=True, use_y=True, use_z=True, on_ground=True, us
         quaternion_cleanup(armature)
         yield Status("root quaternion cleanup")
 
-    # # Delete helpers
+    # Delete helpers
     bpy.data.actions.remove(hipsbaker.animation_data.action)
     bpy.data.actions.remove(rootbaker.animation_data.action)
     bpy.data.objects.remove(hipsbaker)
@@ -642,6 +649,27 @@ def copyHips(root_bone_name="Root", hip_bone_name="mixamorig:Hips", name_prefix=
         
     bpy.context.area.ui_type = 'VIEW_3D'
     bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def remove_bone_keyframes(armature, bone_name):
+    # Ensure the armature has animation data and an action
+    if armature.animation_data and armature.animation_data.action:
+        action = armature.animation_data.action
+        
+        # Iterate through all fcurves in the action
+        fcurves_to_remove = []
+        for fcurve in action.fcurves:
+            # Check if the fcurve is related to the specific bone
+            if fcurve.data_path.startswith(f'pose.bones["{bone_name}"]'):
+                fcurves_to_remove.append(fcurve)
+        
+        # Remove the identified fcurves
+        for fcurve in fcurves_to_remove:
+            action.fcurves.remove(fcurve)
+        
+        print(f"All keyframes for bone '{bone_name}' have been removed.")
+    else:
+        print("The armature has no animation data or no action assigned.")    
 
 if __name__ == "__main__":
     print("mixamoconv Hello.")
